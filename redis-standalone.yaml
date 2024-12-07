@@ -12,13 +12,20 @@ kind: ConfigMap
 metadata:
   name: redis-config
   namespace: redis-standalone
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: redis-standalone
+    app.kubernetes.io/component: config
 data:
   redis.conf: |
     # Basic Redis configuration
     appendonly yes
     dir /data
-    # Add or modify any other configurations as needed
-    # For example:
+    tcp-keepalive 400
+    slowlog-max-len 158
+    stream-node-max-bytes 2048
+    # Additional configurations can be added here
+    # Example:
     # maxmemory 100mb
     # maxmemory-policy allkeys-lru
 
@@ -78,7 +85,7 @@ metadata:
     app.kubernetes.io/version: "7.0.15"
 spec:
   serviceName: redis-standalone-headless
-  replicas: 3
+  replicas: 3 # Change this to 50 if you need 50 replicas
   selector:
     matchLabels:
       app.kubernetes.io/name: redis
@@ -90,10 +97,12 @@ spec:
         app.kubernetes.io/instance: redis-standalone
         app.kubernetes.io/component: database
     spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
       - name: redis
         image: quay.io/opstree/redis:v7.0.15
-        # Run Redis using the custom configuration file from the ConfigMap
         command: ["redis-server", "/etc/redis/redis.conf"]
         ports:
         - containerPort: 6379
@@ -104,6 +113,11 @@ spec:
         - name: redis-config-volume
           mountPath: /etc/redis
           readOnly: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+
 
       - name: redis-exporter
         image: quay.io/opstree/redis-exporter:v1.44.0
@@ -113,6 +127,11 @@ spec:
         ports:
         - containerPort: 9121
           name: metrics
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+
 
       volumes:
       - name: redis-config-volume
@@ -134,3 +153,4 @@ spec:
       resources:
         requests:
           storage: 5Gi
+      allowVolumeExpansion: true
