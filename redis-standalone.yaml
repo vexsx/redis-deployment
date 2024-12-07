@@ -1,0 +1,112 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redis-standalone
+  labels:
+    environment: production
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-standalone-headless
+  namespace: redis-standalone
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: redis-standalone
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: redis-standalone
+  ports:
+    - port: 6379
+      name: redis
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-standalone-metrics
+  namespace: redis-standalone
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: redis-standalone
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: redis-service
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9121
+      targetPort: 9121
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: redis-standalone
+    app.kubernetes.io/component: database
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-standalone
+  namespace: redis-standalone
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: redis-standalone
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: redis-service
+    app.kubernetes.io/managed-by: kubectl
+    app.kubernetes.io/version: "7.0.15"
+spec:
+  serviceName: redis-standalone-headless
+  replicas: 3 # Change this to 50 if you need 50 replicas
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: redis-standalone
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/instance: redis-standalone
+        app.kubernetes.io/component: database
+    spec:
+      containers:
+      - name: redis
+        image: quay.io/opstree/redis:v7.0.15
+        # Store data in /data and enable append-only mode for durability
+        command: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
+        ports:
+        - containerPort: 6379
+          name: redis
+        volumeMounts:
+        - mountPath: /data
+          name: redis-data
+
+      - name: redis-exporter
+        image: quay.io/opstree/redis-exporter:v1.44.0
+        env:
+        - name: REDIS_ADDR
+          value: "redis://localhost:6379"
+        ports:
+        - containerPort: 9121
+          name: metrics
+
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+      annotations:
+        description: "Persistent volume claim for standalone Redis data storage"
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/instance: redis-standalone
+        app.kubernetes.io/component: database
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: longhorn
+      resources:
+        requests:
+          storage: 5Gi
