@@ -8,6 +8,22 @@ metadata:
 
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: redis-standalone
+data:
+  redis.conf: |
+    # Basic Redis configuration
+    appendonly yes
+    dir /data
+    # Add or modify any other configurations as needed
+    # For example:
+    # maxmemory 100mb
+    # maxmemory-policy allkeys-lru
+
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: redis-standalone-headless
@@ -62,7 +78,7 @@ metadata:
     app.kubernetes.io/version: "7.0.15"
 spec:
   serviceName: redis-standalone-headless
-  replicas: 3 # Change this to 50 if you need 50 replicas
+  replicas: 3
   selector:
     matchLabels:
       app.kubernetes.io/name: redis
@@ -77,14 +93,17 @@ spec:
       containers:
       - name: redis
         image: quay.io/opstree/redis:v7.0.15
-        # Store data in /data and enable append-only mode for durability
-        command: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
+        # Run Redis using the custom configuration file from the ConfigMap
+        command: ["redis-server", "/etc/redis/redis.conf"]
         ports:
         - containerPort: 6379
           name: redis
         volumeMounts:
         - mountPath: /data
           name: redis-data
+        - name: redis-config-volume
+          mountPath: /etc/redis
+          readOnly: true
 
       - name: redis-exporter
         image: quay.io/opstree/redis-exporter:v1.44.0
@@ -94,6 +113,11 @@ spec:
         ports:
         - containerPort: 9121
           name: metrics
+
+      volumes:
+      - name: redis-config-volume
+        configMap:
+          name: redis-config
 
   volumeClaimTemplates:
   - metadata:
