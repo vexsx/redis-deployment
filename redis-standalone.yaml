@@ -62,7 +62,7 @@ metadata:
 spec:
   clusterIP: None
   ports:
-    - name: redis-standalone-metrics
+    - name: metrics
       port: 9121
       targetPort: 9121
   selector:
@@ -82,10 +82,11 @@ metadata:
     app.kubernetes.io/component: database
     app.kubernetes.io/part-of: redis-service
     app.kubernetes.io/managed-by: kubectl
-    app.kubernetes.io/version: "7.0.15"
+    app.kubernetes.io/redis-version: "v7.0.15"
+    app.kubernetes.io/redis-exporter-version: "v1.44.0"
 spec:
   serviceName: redis-standalone-headless
-  replicas: 3 # Change this to 50 if you need 50 replicas
+  replicas: 3 # Adjust the number of replicas as needed
   selector:
     matchLabels:
       app.kubernetes.io/name: redis
@@ -101,56 +102,77 @@ spec:
         runAsUser: 1000
         fsGroup: 1000
       containers:
-      - name: redis
-        image: quay.io/opstree/redis:v7.0.15
-        command: ["redis-server", "/etc/redis/redis.conf"]
-        ports:
-        - containerPort: 6379
-          name: redis
-        volumeMounts:
-        - mountPath: /data
-          name: redis-data
-        - name: redis-config-volume
-          mountPath: /etc/redis
-          readOnly: true
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
+        - name: redis
+          image: quay.io/opstree/redis:v7.0.15
+          command: ["redis-server", "/etc/redis/redis.conf"]
+          ports:
+            - containerPort: 6379
+              name: redis
+          volumeMounts:
+            - mountPath: /data
+              name: redis-data
+            - name: redis-config-volume
+              mountPath: /etc/redis
+              readOnly: true
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
 
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 15
+            periodSeconds: 20
 
-      - name: redis-exporter
-        image: quay.io/opstree/redis-exporter:v1.44.0
-        env:
-        - name: REDIS_ADDR
-          value: "redis://localhost:6379"
-        ports:
-        - containerPort: 9121
-          name: redis-standalone-metrics
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "100m"
+        - name: redis-exporter
+          image: quay.io/opstree/redis-exporter:v1.44.0
+          env:
+            - name: REDIS_ADDR
+              value: "redis://localhost:6379"
+          ports:
+            - containerPort: 9121
+              name: metrics
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
 
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9121
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9121
+            initialDelaySeconds: 20
+            periodSeconds: 30
 
       volumes:
-      - name: redis-config-volume
-        configMap:
-          name: redis-config
+        - name: redis-config-volume
+          configMap:
+            name: redis-config
 
   volumeClaimTemplates:
-  - metadata:
-      name: redis-data
-      annotations:
-        description: "Persistent volume claim for standalone Redis data storage"
-      labels:
-        app.kubernetes.io/name: redis
-        app.kubernetes.io/instance: redis-standalone
-        app.kubernetes.io/component: database
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      storageClassName: longhorn
-      resources:
-        requests:
-          storage: 2Gi
-
+    - metadata:
+        name: redis-data
+        annotations:
+          description: "Persistent volume claim for standalone Redis data storage"
+        labels:
+          app.kubernetes.io/name: redis
+          app.kubernetes.io/instance: redis-standalone
+          app.kubernetes.io/component: database
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 2Gi
